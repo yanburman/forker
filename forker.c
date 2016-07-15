@@ -1,5 +1,7 @@
 #include <sys/signalfd.h>
 #include <sys/epoll.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -13,10 +15,26 @@
 
 #define MAX_EVENTS 10
 
+static void do_forks(int num)
+{
+    pid_t pid;
+    int i;
+
+    for (i = 0; i < num; ++i) {
+        pid = fork();
+        if (pid == -1)
+            handle_error("fork");
+
+        if (pid)
+            fprintf(stderr, "Forked %d\n", pid);
+    }
+}
+
 static void run_epoll(int epollfd)
 {
     struct epoll_event events[MAX_EVENTS];
-    int nfds, n;
+    int nfds, n, status;
+    pid_t pid;
     struct signalfd_siginfo fdsi;
     ssize_t sz;
 
@@ -32,12 +50,22 @@ static void run_epoll(int epollfd)
                 handle_error("read");
 
             if (fdsi.ssi_signo == SIGINT) {
-                printf("Got SIGINT\n");
+                fprintf(stderr, "%d: Got SIGINT from %d\n", getpid(), fdsi.ssi_pid);
             } else if (fdsi.ssi_signo == SIGQUIT) {
-                printf("Got SIGQUIT\n");
+                fprintf(stderr, "%d: Got SIGQUIT from %d\n", getpid(), fdsi.ssi_pid);
                 exit(EXIT_SUCCESS);
+            } else if (fdsi.ssi_signo == SIGTERM) {
+                fprintf(stderr, "%d: Got SIGTERM from %d\n", getpid(), fdsi.ssi_pid);
+                exit(EXIT_SUCCESS);
+            } else if (fdsi.ssi_signo == SIGCHLD) {
+                fprintf(stderr, "%d: Got SIGCHLD from %d\n", getpid(), fdsi.ssi_pid);
+                do {
+                    pid = waitpid(-1, &status, WNOHANG);
+                    if (pid > 0)
+                        fprintf(stderr, "%d: Process %d exited\n", getpid(), pid);
+                } while (pid > 0);
             } else {
-                printf("Read unexpected signal\n");
+                fprintf(stderr, "%d: Read unexpected signal from %d\n", getpid(), fdsi.ssi_pid);
             }
         }
     }
@@ -51,7 +79,9 @@ int main(int argc, char *argv[])
 
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
     sigaddset(&mask, SIGQUIT);
+    sigaddset(&mask, SIGCHLD);
 
     /* Block signals so that they aren't handled
        according to their default dispositions */
@@ -59,16 +89,19 @@ int main(int argc, char *argv[])
     if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1)
         handle_error("sigprocmask");
 
-    sfd = signalfd(-1, &mask, 0);
+    sfd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK);
     if (sfd == -1)
         handle_error("signalfd");
 
-    epollfd = epoll_create1(0);
+    // forking after epoll created leades to world of pain
+    do_forks(1);
+
+    epollfd = epoll_create1(EPOLL_CLOEXEC);
     if (epollfd == -1) {
         handle_error("epoll_create1");
     }
 
-    ev.events = EPOLLIN | EPOLLOUT | EPOLLERR;
+    ev.events = EPOLLIN;
     ev.data.fd = sfd;
     if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sfd, &ev) == -1) {
         handle_error("epoll_ctl: signalfd");
