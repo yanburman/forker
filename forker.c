@@ -15,7 +15,9 @@
 
 #define MAX_EVENTS 10
 
-static void do_forks(int num)
+void run_epoll(int sfd);
+
+static void do_forks(int num, int sfd)
 {
     pid_t pid;
     int i;
@@ -25,18 +27,32 @@ static void do_forks(int num)
         if (pid == -1)
             handle_error("fork");
 
-        if (pid)
+        if (pid) {
             fprintf(stderr, "Forked %d\n", pid);
+        } else {
+            run_epoll(sfd);
+        }
     }
 }
 
-static void run_epoll(int epollfd)
+void run_epoll(int sfd)
 {
-    struct epoll_event events[MAX_EVENTS];
+    struct epoll_event ev, events[MAX_EVENTS];
     int nfds, n, status;
     pid_t pid;
     struct signalfd_siginfo fdsi;
     ssize_t sz;
+
+    int epollfd = epoll_create1(EPOLL_CLOEXEC);
+    if (epollfd == -1) {
+        handle_error("epoll_create1");
+    }
+
+    ev.events = EPOLLIN;
+    ev.data.fd = sfd;
+    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sfd, &ev) == -1) {
+        handle_error("epoll_ctl: signalfd");
+    }
 
     for (;;) {
         nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
@@ -61,8 +77,10 @@ static void run_epoll(int epollfd)
                 fprintf(stderr, "%d: Got SIGCHLD from %d\n", getpid(), fdsi.ssi_pid);
                 do {
                     pid = waitpid(-1, &status, WNOHANG);
-                    if (pid > 0)
+                    if (pid > 0) {
                         fprintf(stderr, "%d: Process %d exited\n", getpid(), pid);
+                        do_forks(1, sfd);
+                    }
                 } while (pid > 0);
             } else {
                 fprintf(stderr, "%d: Read unexpected signal from %d\n", getpid(), fdsi.ssi_pid);
@@ -94,20 +112,9 @@ int main(int argc, char *argv[])
         handle_error("signalfd");
 
     // forking after epoll created leades to world of pain
-    do_forks(1);
+    do_forks(1, sfd);
 
-    epollfd = epoll_create1(EPOLL_CLOEXEC);
-    if (epollfd == -1) {
-        handle_error("epoll_create1");
-    }
-
-    ev.events = EPOLLIN;
-    ev.data.fd = sfd;
-    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sfd, &ev) == -1) {
-        handle_error("epoll_ctl: signalfd");
-    }
-
-    run_epoll(epollfd);
+    run_epoll(sfd);
 
     return EXIT_SUCCESS;
 }
