@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 
 #define handle_error(msg)                                                                                              \
     do {                                                                                                               \
@@ -13,9 +14,52 @@
         exit(EXIT_FAILURE);                                                                                            \
     } while (0)
 
-#define MAX_EVENTS 10
+#define MAX_CHILDREN 10
 
-void run_epoll(int sfd);
+static pid_t children[MAX_CHILDREN];
+static int n_children;
+
+static int get_child_idx(pid_t pid)
+{
+    int res = -1;
+
+    for (int i = 0; i < MAX_CHILDREN; ++i) {
+        if (children[i] == pid) {
+            res = i;
+            break;
+        }
+    }
+
+    assert(res != -1);
+
+    return res;
+}
+
+static int find_empty_child_idx(void)
+{
+    int res = -1;
+
+    for (int i = 0; i < MAX_CHILDREN; ++i) {
+        if (children[i] == 0) {
+            res = i;
+            break;
+        }
+    }
+
+    assert(res != -1);
+
+    return res;
+}
+
+static void clear_child(pid_t pid)
+{
+    children[get_child_idx(pid)] = 0;
+    --n_children;
+}
+
+#define MAX_EVENTS MAX_CHILDREN
+
+void run_epoll(int sfd, int parent);
 
 static void do_forks(int num, int sfd)
 {
@@ -29,13 +73,27 @@ static void do_forks(int num, int sfd)
 
         if (pid) {
             fprintf(stderr, "Forked %d\n", pid);
+            children[find_empty_child_idx()] = pid;
+            ++n_children;
         } else {
-            run_epoll(sfd);
+            run_epoll(sfd, 0);
         }
     }
 }
 
-void run_epoll(int sfd)
+static int exiting;
+
+static void notify_children(int sig)
+{
+    for (int i = 0; i < MAX_CHILDREN; ++i) {
+        if (children[i] != 0) {
+            fprintf(stderr, "%d: Sending signal to %d\n", getpid(), children[i]);
+            kill(children[i], sig);
+        }
+    }
+}
+
+void run_epoll(int sfd, int parent)
 {
     struct epoll_event ev, events[MAX_EVENTS];
     int nfds, n, status;
@@ -69,17 +127,36 @@ void run_epoll(int sfd)
                 fprintf(stderr, "%d: Got SIGINT from %d\n", getpid(), fdsi.ssi_pid);
             } else if (fdsi.ssi_signo == SIGQUIT) {
                 fprintf(stderr, "%d: Got SIGQUIT from %d\n", getpid(), fdsi.ssi_pid);
-                exit(EXIT_SUCCESS);
+                if (parent) {
+                    exiting = 1;
+                    notify_children(SIGQUIT);
+                } else {
+                    exit(EXIT_SUCCESS);
+                }
             } else if (fdsi.ssi_signo == SIGTERM) {
                 fprintf(stderr, "%d: Got SIGTERM from %d\n", getpid(), fdsi.ssi_pid);
-                exit(EXIT_SUCCESS);
+                if (parent) {
+                    exiting = 1;
+                    notify_children(SIGTERM);
+                } else {
+                    exit(EXIT_SUCCESS);
+                }
             } else if (fdsi.ssi_signo == SIGCHLD) {
                 fprintf(stderr, "%d: Got SIGCHLD from %d\n", getpid(), fdsi.ssi_pid);
                 do {
                     pid = waitpid(-1, &status, WNOHANG);
                     if (pid > 0) {
                         fprintf(stderr, "%d: Process %d exited\n", getpid(), pid);
-                        do_forks(1, sfd);
+                        clear_child(pid);
+
+                        if (!exiting) {
+                            do_forks(1, sfd);
+                        } else {
+                            if (n_children == 0) {
+                                fprintf(stderr, "%d: All children exited\n", getpid());
+                                exit(EXIT_SUCCESS);
+                            }
+                        }
                     }
                 } while (pid > 0);
             } else {
@@ -112,9 +189,9 @@ int main(int argc, char *argv[])
         handle_error("signalfd");
 
     // forking after epoll created leades to world of pain
-    do_forks(1, sfd);
+    do_forks(MAX_CHILDREN, sfd);
 
-    run_epoll(sfd);
+    run_epoll(sfd, 1);
 
     return EXIT_SUCCESS;
 }
