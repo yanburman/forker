@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+#include "server.h"
 
 #define handle_error(msg)                                                                                              \
     do {                                                                                                               \
@@ -66,6 +67,9 @@ static void do_forks(int num, int sfd)
     pid_t pid;
     int i;
 
+    pid = getpid();
+    fprintf(stderr, "Parent forker %d\n", pid);
+
     for (i = 0; i < num; ++i) {
         pid = fork();
         if (pid == -1)
@@ -75,6 +79,7 @@ static void do_forks(int num, int sfd)
             fprintf(stderr, "Forked %d\n", pid);
             children[find_empty_child_idx()] = pid;
             ++n_children;
+            start_server();
         } else {
             run_epoll(sfd, 0);
         }

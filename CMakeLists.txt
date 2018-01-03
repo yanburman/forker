@@ -37,8 +37,14 @@ set(CMAKE_CXX_FLAGS_RELEASE "${warning_flags} \
 
 set(target forker)
 
-add_executable(${target} forker.c)
+add_executable(${target} forker.c
+                        server.c)
 
 target_link_libraries(${target}
                       pthread
                       )
+
+set(target client)
+
+add_executable(${target} client.c client.c)
+
