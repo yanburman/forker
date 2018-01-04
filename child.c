@@ -5,6 +5,7 @@
 #include <fcntl.h>
 
 #include "common.h"
+#include "mmaper.h"
 
 static int child_idx;
 
@@ -24,6 +25,8 @@ void write_child_exit_info()
 
 static void signal_handler(int sig, siginfo_t *si, void *arg)
 {
+    map_remap_private(child_idx);
+
     write_child_exit_info();
 
     kill(getpid(), sig);

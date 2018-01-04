@@ -42,5 +42,5 @@ protected:
     int sfd;
     int epoll_fd;
 
-    void child_fn(int idx);
+    void child_fn(int idx, bool respawned);
 };

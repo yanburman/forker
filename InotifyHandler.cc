@@ -104,6 +104,7 @@ void InotifyHandler::handle()
                        pid_t pid = 0;
                        int idx = 0;
                        int n_vals = sscanf(event->name, "child_%d_%d", &pid, &idx);
+                       fprintf(stderr, "file: %s, n_vals:%d, pid: %d, idx:%d\n", event->name, n_vals, pid, idx);
                        if (n_vals == 2 && pid != 0 && idx != 0) {
                            time_t t = time(NULL);
                            struct tm *tm = localtime(&t);

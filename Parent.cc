@@ -79,9 +79,9 @@ void Parent::set_new_child(int child_idx, pid_t pid)
     children[child_idx] = pid;
 }
 
-void Parent::child_fn(int idx)
+void Parent::child_fn(int idx, bool respawned)
 {
-    map_memory(idx);
+    map_memory(idx, respawned);
     set_child_idx(idx);
     run_epoll(0);
 }
@@ -97,7 +97,7 @@ void Parent::respawn(int child_idx)
         set_new_child(child_idx, pid);
         ++n_children;
     } else {
-        child_fn(child_idx);
+        child_fn(child_idx, true);
     }
 }
 
@@ -118,7 +118,7 @@ void Parent::do_forks(int num)
             set_new_child(idx, pid);
             ++n_children;
         } else {
-            child_fn(idx);
+            child_fn(idx, false);
         }
     }
 }
