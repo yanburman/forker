@@ -8,19 +8,25 @@
 
 static int child_idx;
 
-static void signal_handler(int sig, siginfo_t *si, void *arg)
+void write_child_exit_info()
 {
     char path[PATH_MAX];
     pid_t pid = getpid();
+
+    fprintf(stderr, "Child idx %d pid: %d got signal\n", child_idx, pid);
 
     snprintf(path, sizeof(path), "/tmp/child_%d_%d", pid, child_idx);
     int fd = creat(path, S_IWUSR | S_IRUSR);
     if (fd < 0)
         handle_error("creat in signal handler");
     close(fd);
+}
 
-    fprintf(stderr, "Child idx %d pid: %d got signal: %d\n", child_idx, pid, sig);
-    kill(pid, sig);
+static void signal_handler(int sig, siginfo_t *si, void *arg)
+{
+    write_child_exit_info();
+
+    kill(getpid(), sig);
 }
 
 typedef void (*sighandler_t)(int);

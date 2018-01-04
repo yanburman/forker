@@ -2,7 +2,7 @@
 #include <sys/types.h>
 #include <string.h>
 
-#define MAX_CHILDREN 10
+#define MAX_CHILDREN 2
 
 class Parent
 {
@@ -30,6 +30,9 @@ public:
 
     void run_epoll(int is_parent);
     void set_new_child(int child_idx, pid_t pid);
+
+    bool is_exiting()
+    { return exiting == 1; }
 
 protected:
     int exiting;

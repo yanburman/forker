@@ -70,7 +70,6 @@ void Parent::notify_children(int sig)
 void Parent::add_new_child(pid_t pid)
 {
     children[find_empty_child_idx()] = pid;
-    ++n_children;
 }
 
 void Parent::set_new_child(int child_idx, pid_t pid)
@@ -78,7 +77,6 @@ void Parent::set_new_child(int child_idx, pid_t pid)
     assert(children[child_idx] == 0);
 
     children[child_idx] = pid;
-    ++n_children;
 }
 
 void Parent::child_fn(int idx)
@@ -97,6 +95,7 @@ void Parent::respawn(int child_idx)
     if (pid) {
         fprintf(stderr, "Respawned %d\n", pid);
         set_new_child(child_idx, pid);
+        ++n_children;
     } else {
         child_fn(child_idx);
     }
@@ -117,6 +116,7 @@ void Parent::do_forks(int num)
         if (pid) {
             fprintf(stderr, "Forked %d\n", pid);
             set_new_child(idx, pid);
+            ++n_children;
         } else {
             child_fn(idx);
         }
@@ -140,7 +140,7 @@ void Parent::run_epoll(int is_parent)
         ev.data.ptr = new ParentSignalHandler(sfd, this);
         set_epoll_fd(epollfd);
 
-        InotifyHandler *ino_handler = new InotifyHandler();
+        InotifyHandler *ino_handler = new InotifyHandler(this);
 
         inotify_ev.events = EPOLLIN;
         inotify_ev.data.ptr = ino_handler;

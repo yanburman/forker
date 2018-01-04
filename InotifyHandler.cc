@@ -3,10 +3,13 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/inotify.h>
+#include <time.h>
+#include <fcntl.h>
+
 #include "common.h"
 
-InotifyHandler::InotifyHandler()
-: Handler(-1), inotify_fd(-1), path(NULL)
+InotifyHandler::InotifyHandler(Parent* parent)
+: Handler(-1), inotify_fd(-1), path(NULL), parent(parent), watched_dir_fd(-1), watched_dir(NULL)
 {
 }
 
@@ -19,6 +22,14 @@ int InotifyHandler::init(const char* path)
     watch_descriptor = inotify_add_watch(inotify_fd, path, IN_CREATE | IN_ISDIR);
     if (watch_descriptor == -1)
         handle_error("inotify_add_watch");
+
+    watched_dir = opendir(path);
+    if (watched_dir == NULL)
+        handle_error("opendir");
+
+    watched_dir_fd = dirfd(watched_dir);
+    if (watched_dir_fd < 0)
+        handle_error("open watched dir");
 
     this->path = path;
 
@@ -33,7 +44,7 @@ void InotifyHandler::handle()
               the inotify file descriptor should have the same alignment as
               struct inotify_event. */
 
-           char buf[4096]
+           char buf[8192]
                __attribute__ ((aligned(__alignof__(struct inotify_event))));
            const struct inotify_event *event;
            ssize_t len;
@@ -81,13 +92,6 @@ void InotifyHandler::handle()
                    if (event->len)
                        printf("%s", event->name);
 
-                   {
-                       pid_t pid = 0;
-                       int idx = 0;
-                       int n_vals = sscanf(event->name, "child_%d_%d", &pid, &idx);
-                       if (n_vals == 2 && pid != 0 && idx != 0)
-                           printf("Child idx %d pid %d is dying\n", idx, pid);
-                   }
 
                    /* Print type of filesystem object */
 
@@ -95,6 +99,24 @@ void InotifyHandler::handle()
                        printf(" [directory]\n");
                    else
                        printf(" [file]\n");
+
+                   {
+                       pid_t pid = 0;
+                       int idx = 0;
+                       int n_vals = sscanf(event->name, "child_%d_%d", &pid, &idx);
+                       if (n_vals == 2 && pid != 0 && idx != 0) {
+                           time_t t = time(NULL);
+                           struct tm *tm = localtime(&t);
+                           printf("Child idx %d pid %d is dying: %s", idx, pid, asctime(tm));
+
+                           unlinkat(watched_dir_fd, event->name, 0);
+
+		           parent->clear_child(pid);
+                           if (!parent->is_exiting()) {
+                               parent->respawn(idx);
+                           }
+                       }
+                   }
                }
            }
 }

@@ -6,10 +6,12 @@
 #include <sys/signalfd.h>
 #include <stdlib.h>
 #include "common.h"
+#include "child.h"
 
 void ChildSignalHandler::handle_exit()
 {
-        exit(EXIT_SUCCESS);
+    write_child_exit_info();
+    exit(EXIT_SUCCESS);
 }
 
 void ChildSignalHandler::handle()

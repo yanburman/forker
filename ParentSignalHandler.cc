@@ -36,17 +36,14 @@ void ParentSignalHandler::handle()
 	time_t t = time(NULL);
 	struct tm *tm = localtime(&t);
 
-	fprintf(stderr, "%d: Got SIGCHLD from %d (%s)\n", getpid(), fdsi.ssi_pid, asctime(tm));
+	fprintf(stderr, "%d: Got SIGCHLD from %d %s", getpid(), fdsi.ssi_pid, asctime(tm));
 	do {
 	    pid = waitpid(-1, &status, WNOHANG);
 	    if (pid > 0) {
-                int child_idx = parent->get_child_idx(pid);
-		fprintf(stderr, "%d: Process %d exited (idx:%d)\n", getpid(), pid, child_idx);
-		parent->clear_child(pid);
+                --parent->n_children;
+		fprintf(stderr, "%d: Process %d exited\n", getpid(), pid);
 
-		if (!parent->exiting) {
-		    parent->respawn(child_idx);
-		} else {
+		if (parent->exiting) {
 		    if (parent->n_children == 0) {
 			fprintf(stderr, "%d: All children exited\n", getpid());
 			exit(EXIT_SUCCESS);
